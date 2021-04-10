@@ -12,13 +12,22 @@ import matplotlib.pyplot as plt
 import numpy as np
 import open3d as o3d
 import os
+import shutil
 import sys
 from typing import List, Tuple
 
+# Types
+o3d_pcd = o3d.geometry.PointCloud
+o3d_bb = o3d.geometry.AxisAlignedBoundingBox
+
+# Global variables
 glb_skel_bb_list = []
 glb_track_man = tracking.TrackManager()
 glb_tracked_top_bb_list = []
 glb_tracked_bot_bb_list = []
+    
+UPRIGHT_TOLERANCE_DEG = 20
+Z_NORMAL_THOLD = math.cos(math.radians(UPRIGHT_TOLERANCE_DEG))
 
 def get_sub_pcd_from_bounding_box(pcd: o3d.geometry.PointCloud,
                                   bb: o3d.geometry.AxisAlignedBoundingBox,
@@ -41,41 +50,73 @@ def exclude_pts_in_bounding_boxes(pcd: o3d.geometry.PointCloud,
     return pcd.select_by_index(list(selected_indices), invert=True)
 
 
-def process_data_frame(data_frame: PcdDataFrame, viewer=None) -> None:
-    scene_pcd = o3d.geometry.PointCloud(data_frame.pcd) # make a copy
-    has_skels = (
-        data_frame.body_pcd is not None and
-        data_frame.skel_frame is not None and
-        (
-            data_frame.skel_frame.skeleton_list is not None or
-            len(data_frame.skel_frame.skeleton_list) != 0
-        )
-    ) 
+def recover_full_scene_pcd(data_frame: PcdDataFrame) -> o3d_pcd:
+    full_scene_pcd = o3d_pcd(data_frame.pcd) # make a copy
+    has_skels = (data_frame.body_pcd and data_frame.skel_frame and
+                 data_frame.skel_frame.skeleton_list)
 
     # Merge body pcd points to scene pcd if body pcd exists
     if has_skels:
         body_pcd = o3d.geometry.PointCloud(data_frame.body_pcd)
-        scene_pcd.points = o3d.utility.Vector3dVector(np.vstack((
-            np.asarray(scene_pcd.points),
+        full_scene_pcd.points = o3d.utility.Vector3dVector(np.vstack((
+            np.asarray(full_scene_pcd.points),
             np.asarray(body_pcd.points)
         )))
-        scene_pcd.colors = o3d.utility.Vector3dVector(np.vstack((
-            np.asarray(scene_pcd.colors),
+        full_scene_pcd.colors = o3d.utility.Vector3dVector(np.vstack((
+            np.asarray(full_scene_pcd.colors),
             np.asarray(body_pcd.colors)
         )))
-        scene_pcd.estimate_normals(fast_normal_computation=False)
-        scene_pcd.orient_normals_towards_camera_location(data_frame.kinect_pose.trans_vec)
+        full_scene_pcd.estimate_normals(fast_normal_computation=False)
+        full_scene_pcd.orient_normals_towards_camera_location(data_frame.kinect_pose.trans_vec)
+
+    return full_scene_pcd
+
+
+def remove_human_points(scene_pcd: o3d_pcd, top_bb_list: List[o3d_bb],
+                        bot_bb_list: List[o3d_bb]) -> o3d_pcd:
+    # Remove points in the top_bb and bot_bb lists
+    scene_pcd_no_man = o3d_pcd(scene_pcd)
+    full_scene_points = np.asarray(scene_pcd_no_man.points)
+    full_scene_normals = np.asarray(scene_pcd_no_man.normals)
+    remove_pts_indices: np.ndarray = np.array([])
+
+    # Mark every points from top_bb for removal
+    for top_bb in top_bb_list:
+        top_bb_pts_indices = top_bb.get_point_indices_within_bounding_box(scene_pcd_no_man.points)
+        remove_pts_indices = np.append(remove_pts_indices, top_bb_pts_indices)
     
+    # Mark points from bot_bb whose normal is not so vertical for removal
+    for bot_bb in bot_bb_list:
+        bot_bb_pts_indices = bot_bb.get_point_indices_within_bounding_box(scene_pcd_no_man.points)
+        bot_bb_pts_sel = np.logical_and(
+            np.isin(np.arange(len(full_scene_points)), bot_bb_pts_indices),
+            full_scene_normals[:, 2] < Z_NORMAL_THOLD
+        )
+        remove_pts_indices = np.append(remove_pts_indices, np.arange(len(full_scene_points))[bot_bb_pts_sel])
+
+    # Remove marked points from visualization pcd
+    remove_pts_indices = list(set(remove_pts_indices.astype(int).tolist()))
+    full_scene_points[remove_pts_indices, 0] = np.nan
+    scene_pcd_no_man.remove_non_finite_points()
+    scene_pcd_no_man.estimate_normals(fast_normal_computation=False)
+    scene_pcd_no_man.orient_normals_towards_camera_location(data_frame.kinect_pose.trans_vec)
+
+    return scene_pcd_no_man
+
+
+def process_data_frame(data_frame: PcdDataFrame, viewer=None) -> None:
     # Make a copy of the full scene pcd including the body pcd for later use
-    full_scene_pcd = o3d.geometry.PointCloud(scene_pcd)
+    full_scene_pcd = recover_full_scene_pcd(data_frame)
+    scene_pcd = o3d_pcd(full_scene_pcd)
 
     # Remove all points whose normals are close to upright direction
-    UPRIGHT_TOLERANCE_DEG = 20
-    z_normal_threshold = math.cos(math.radians(UPRIGHT_TOLERANCE_DEG))
     normals = np.asarray(scene_pcd.normals)
     points = np.asarray(scene_pcd.points)
-    points[normals[:, 2] >= z_normal_threshold, 0] = np.nan
+    points[normals[:, 2] >= Z_NORMAL_THOLD, 0] = np.nan
     scene_pcd.remove_non_finite_points()
+
+    has_skels = (data_frame.body_pcd and data_frame.skel_frame and
+                 data_frame.skel_frame.skeleton_list)
 
     # Add skeleton interpolated points
     if has_skels:
@@ -206,33 +247,8 @@ def process_data_frame(data_frame: PcdDataFrame, viewer=None) -> None:
             viewer.add_geometry(bb)
     
     if show_full_scene_pcd_no_man and cur_top_bb_list and cur_bot_bb_list:
-        # Remove points in the top_bb and bot_bb lists
-        full_scene_pcd_no_man = o3d.geometry.PointCloud(full_scene_pcd)
-        full_scene_points = np.asarray(full_scene_pcd_no_man.points)
-        full_scene_normals = np.asarray(full_scene_pcd_no_man.normals)
-        remove_pts_indices: np.ndarray = np.array([])
-
-        # Mark every points from top_bb for removal
-        for top_bb in cur_top_bb_list:
-            top_bb_pts_indices = top_bb.get_point_indices_within_bounding_box(full_scene_pcd_no_man.points)
-            remove_pts_indices = np.append(remove_pts_indices, top_bb_pts_indices)
-        
-        # Mark points from bot_bb whose normal is not so vertical for removal
-        for bot_bb in cur_bot_bb_list:
-            bot_bb_pts_indices = bot_bb.get_point_indices_within_bounding_box(full_scene_pcd_no_man.points)
-            bot_bb_pts_sel = np.logical_and(
-                np.isin(np.arange(len(full_scene_points)), bot_bb_pts_indices),
-                full_scene_normals[:, 2] < z_normal_threshold
-            )
-            remove_pts_indices = np.append(remove_pts_indices, np.arange(len(full_scene_points))[bot_bb_pts_sel])
-
-        # Remove marked points from visualization pcd
-        remove_pts_indices = list(set(remove_pts_indices.astype(int).tolist()))
-        full_scene_points[remove_pts_indices, 0] = np.nan
-        full_scene_pcd_no_man.remove_non_finite_points()
-        full_scene_pcd_no_man.estimate_normals(fast_normal_computation=False)
-        full_scene_pcd_no_man.orient_normals_towards_camera_location(data_frame.kinect_pose.trans_vec)
-        
+        full_scene_pcd_no_man = remove_human_points(full_scene_pcd, cur_top_bb_list,
+                                                    cur_bot_bb_list)
         viewer.add_geometry(full_scene_pcd_no_man)
 
     
@@ -286,8 +302,31 @@ def view_data_frame(viewer, data_frame: PcdDataFrame):
     vctl.set_zoom(0.2)
 
 
+def view_result_pcd(viewer, data_frame: PcdDataFrame) -> None:
+    # Add an coordinate system mesh at at the map origin
+    viewer.add_geometry(o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5, origin=np.array([0., 0., 0.])))
+
+    # Point clouds
+    if data_frame.res_pcd:
+        viewer.add_geometry(data_frame.res_pcd)
+    
+    # Kinect coordinate geometry
+    coord = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.3, origin=np.array([0., 0., 0.]))
+    coord.transform(data_frame.kinect_pose.get_tf_mat4x4())
+    viewer.add_geometry(coord)
+    
+    # Adjust camera to kinect pose, and some angle/translation offset for better viewing
+    vctl = viewer.get_view_control()
+    vctl.set_lookat(data_frame.kinect_pose.trans_vec)
+    vctl.set_front(np.matmul(data_frame.kinect_pose.get_rot_mat3x3(), [-1., 0.2, 0.2]))
+    vctl.set_up(np.matmul(data_frame.kinect_pose.get_rot_mat3x3(), [0., 0., 1.]))
+    vctl.translate(0., 50)
+    vctl.set_zoom(0.2)
+
+
 if __name__ == "__main__":
     cwd = os.getcwd()
+    print(cwd)
     data_folder = os.path.join(os.getcwd(), "data/galleryP1")
     if not os.path.isdir(data_folder):
         raise Exception(f"subfolder {data_folder} doesn't exist")
@@ -331,10 +370,16 @@ if __name__ == "__main__":
             global ts_index
             viewer.clear_geometries()
             process_data_frame(data_frame_list[ts_index], viewer=viewer)
+        
+        def view_res_pcd(viewer):
+            global ts_index
+            viewer.clear_geometries()
+            view_result_pcd(viewer, data_frame_list[ts_index])
     
         viewer.register_key_callback(ord("."), goto_next_frame)
         viewer.register_key_callback(ord(","), goto_prev_frame)
         viewer.register_key_callback(ord("/"), proc_cur_frame)
+        viewer.register_key_callback(ord("M"), view_res_pcd)
 
         view_data_frame(viewer, data_frame_list[ts_index])
         viewer.run()
@@ -358,6 +403,17 @@ if __name__ == "__main__":
         all_top_bb_list.extend(glb_tracked_top_bb_list)
         all_bot_bb_list.extend(glb_tracked_bot_bb_list)
 
-
+        # Put pointclouds with human removed in result folder
         res_folder = os.path.join(data_folder, "result")
+        try:
+            shutil.rmtree(res_folder)
+        except Exception as e:
+            pass
         os.mkdir(res_folder)
+
+        for data_frame in data_frame_list:
+            full_scene_pcd = recover_full_scene_pcd(data_frame)
+            scene_pcd_no_human = remove_human_points(full_scene_pcd, all_top_bb_list,
+                                                     all_bot_bb_list)
+            filename = os.path.join(res_folder, f"{data_frame.ts:010d}.pcd")
+            o3d.io.write_point_cloud(filename, scene_pcd_no_human)

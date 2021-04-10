@@ -17,6 +17,7 @@ class PcdDataFiles:
         self.pcd_file = ""
         self.body_in_map_pcd_file = ""
         self.skel_file = ""
+        self.res_file = ""
     
     def __str__(self):
         return (
@@ -26,6 +27,7 @@ class PcdDataFiles:
             f"pcd_file: {self.pcd_file}\n"
             f"body_in_map_pcd_file: {self.body_in_map_pcd_file}\n"
             f"skel_file: {self.skel_file}\n"
+            f"res_file: {self.res_file}\n"
             f"======== Endof PcdDataFiles ========\n"
         )
 
@@ -37,6 +39,7 @@ class PcdDataFrame:
         self.pcd = o3d.geometry.PointCloud()
         self.body_pcd = o3d.geometry.PointCloud()
         self.skel_frame = SkeletonFrame()
+        self.res_pcd = o3d.geometry.PointCloud()
     
     def from_PcdDataFiles(self, pcd_data_files_frame: PcdDataFiles):
         f_frame = pcd_data_files_frame
@@ -54,6 +57,9 @@ class PcdDataFrame:
             self.skel_frame = None
         else:
             self.skel_frame.from_yaml(pcd_data_files_frame.skel_file, self.kinect_pose)
+        
+        if f_frame.res_file:
+            self.res_pcd = o3d.io.read_point_cloud(f_frame.res_file)
 
 
 def get_pcd_data_files_list(data_folder: str = "data") -> List[PcdDataFiles]:
@@ -89,6 +95,8 @@ def get_pcd_data_files_list(data_folder: str = "data") -> List[PcdDataFiles]:
     poses_csv = pd.read_csv(poses_csv_file, delimiter = ',')
     ts_matched_dataframe = poses_csv[poses_csv['ts'].isin(ts_list)]
 
+    res_dir = os.path.join(data_folder, "result")
+
     # Get the pcd_data_files list
     pcd_data_files_list = []
     for _, row in ts_matched_dataframe.iterrows():
@@ -109,6 +117,10 @@ def get_pcd_data_files_list(data_folder: str = "data") -> List[PcdDataFiles]:
         cur_info.skel_file = os.path.join(skel_dir, ts+".yaml")
         if not os.path.isfile(cur_info.skel_file):
             cur_info.skel_file = ""
+        
+        cur_info.res_file = os.path.join(res_dir, ts+".pcd")
+        if not os.path.isfile(cur_info.res_file):
+            cur_info.res_file = ""
         
         pcd_data_files_list.append(cur_info)
     
