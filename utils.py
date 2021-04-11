@@ -1,4 +1,4 @@
-#!/home/panyu/Devs/miniconda3/bin/python
+#!/usr/bin/env python
 
 import numpy as np
 import open3d as o3d

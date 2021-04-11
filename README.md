@@ -83,6 +83,8 @@ In Debug/Vis Mode, an interactive visualization window is used to interact with 
 |,|Go to the next frame|
 |/|Trigger data process and tracking function, and visualize the results|
 |m|Show the resultant pointcloud frame with human removed if the resuls are generated in the `result` subfolder by running in the script on the dataset in Batch Processing Mode.|
+|l|Toggle displaying lighting.|
+|n|Toggle displaying normals.|
 
 ## Batch Processing Mode
 

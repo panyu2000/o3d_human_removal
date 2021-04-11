@@ -1,4 +1,4 @@
-#!/home/panyu/Devs/miniconda3/bin/python
+#!/usr/bin/env python
 
 from numpy.lib.shape_base import tile
 from data_parsing import *
