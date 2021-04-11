@@ -3,10 +3,9 @@
 from numpy.lib.shape_base import tile
 from data_parsing import *
 import tracking
-from trans import Trans
 from skel import *
-import utils
 
+import argparse
 import math
 import matplotlib.pyplot as plt 
 import numpy as np
@@ -26,12 +25,15 @@ glb_track_man = tracking.TrackManager()
 glb_tracked_top_bb_list = []
 glb_tracked_bot_bb_list = []
     
-UPRIGHT_TOLERANCE_DEG = 20
+UPRIGHT_TOLERANCE_DEG = 20  # Normals different within +- this range are similar to ground
 Z_NORMAL_THOLD = math.cos(math.radians(UPRIGHT_TOLERANCE_DEG))
+
 
 def get_sub_pcd_from_bounding_box(pcd: o3d.geometry.PointCloud,
                                   bb: o3d.geometry.AxisAlignedBoundingBox,
                                   color: list = [0., 0., 0.]) -> o3d.geometry.PointCloud :
+    """ Crop out a sub pointcloud from the input pointcloud within the bounding box.
+    """
     new_pcd = pcd.crop(bb)
     new_pcd.paint_uniform_color(color)
     return new_pcd
@@ -51,6 +53,9 @@ def exclude_pts_in_bounding_boxes(pcd: o3d.geometry.PointCloud,
 
 
 def recover_full_scene_pcd(data_frame: PcdDataFrame) -> o3d_pcd:
+    """ Merge the scene pointcloud (maybe with body pointcloud removed) with
+        the body pointcloud, and return the merged full scene pointcloud.
+    """
     full_scene_pcd = o3d_pcd(data_frame.pcd) # make a copy
     has_skels = (data_frame.body_pcd and data_frame.skel_frame and
                  data_frame.skel_frame.skeleton_list)
@@ -74,6 +79,12 @@ def recover_full_scene_pcd(data_frame: PcdDataFrame) -> o3d_pcd:
 
 def remove_human_points(scene_pcd: o3d_pcd, top_bb_list: List[o3d_bb],
                         bot_bb_list: List[o3d_bb]) -> o3d_pcd:
+    """ Return the scene pointcloud with points within the top bounding box list, and
+        the bottom bounding box list removed. All points from top bounding boxes are
+        removed, irrespective of their normal directions; points from bottom bounding
+        boxes are removed, but only for those with normals differ than that of the
+        nominal ground (vertical).
+    """
     # Remove points in the top_bb and bot_bb lists
     scene_pcd_no_man = o3d_pcd(scene_pcd)
     full_scene_points = np.asarray(scene_pcd_no_man.points)
@@ -94,7 +105,7 @@ def remove_human_points(scene_pcd: o3d_pcd, top_bb_list: List[o3d_bb],
         )
         remove_pts_indices = np.append(remove_pts_indices, np.arange(len(full_scene_points))[bot_bb_pts_sel])
 
-    # Remove marked points from visualization pcd
+    # Remove marked points from pcd
     remove_pts_indices = list(set(remove_pts_indices.astype(int).tolist()))
     full_scene_points[remove_pts_indices, 0] = np.nan
     scene_pcd_no_man.remove_non_finite_points()
@@ -105,6 +116,11 @@ def remove_human_points(scene_pcd: o3d_pcd, top_bb_list: List[o3d_bb],
 
 
 def process_data_frame(data_frame: PcdDataFrame, viewer=None) -> None:
+    """ The main data frame processing function that extract human body bounding
+        boxes, apply tracking on them, and store the state and the results
+        in the global variables (track manager, and bounding box lists).
+        Visualization can be optional turned on in debug mode.
+    """
     # Make a copy of the full scene pcd including the body pcd for later use
     full_scene_pcd = recover_full_scene_pcd(data_frame)
     scene_pcd = o3d_pcd(full_scene_pcd)
@@ -206,12 +222,12 @@ def process_data_frame(data_frame: PcdDataFrame, viewer=None) -> None:
     ################# Visualization #################
     show_bbs = True
     show_scene_pcd = False
-    show_pcd_inside_bbs = False
-    show_scene_pcd_excl_bbs = False
+    show_pcd_inside_bbs = True
+    show_scene_pcd_excl_bbs = True
     show_bb_center_trace = True
     show_bb_trace = True
     show_track_bbs = True
-    show_full_scene_pcd_no_man = True
+    show_full_scene_pcd_no_man = False
 
     if show_bbs:
         for bb in skel_bb_list:
@@ -246,10 +262,13 @@ def process_data_frame(data_frame: PcdDataFrame, viewer=None) -> None:
             bb.color = [1, 0.706, 0]
             viewer.add_geometry(bb)
     
-    if show_full_scene_pcd_no_man and cur_top_bb_list and cur_bot_bb_list:
-        full_scene_pcd_no_man = remove_human_points(full_scene_pcd, cur_top_bb_list,
-                                                    cur_bot_bb_list)
-        viewer.add_geometry(full_scene_pcd_no_man)
+    if show_full_scene_pcd_no_man:
+        if cur_top_bb_list and cur_bot_bb_list:
+            full_scene_pcd_no_man = remove_human_points(full_scene_pcd, cur_top_bb_list,
+                                                        cur_bot_bb_list)
+            viewer.add_geometry(full_scene_pcd_no_man)
+        else:
+            viewer.add_geometry(full_scene_pcd)
 
     
     # Adjust camera to kinect pose, and some angle/translation offset for better viewing
@@ -262,6 +281,9 @@ def process_data_frame(data_frame: PcdDataFrame, viewer=None) -> None:
 
 
 def view_data_frame(viewer, data_frame: PcdDataFrame):
+    """ The main function to view the original pointclouds of the dataset,
+        with viewing camera following the kinect camera pose.
+    """
     # Add an coordinate system mesh at at the map origin
     viewer.add_geometry(o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5, origin=np.array([0., 0., 0.])))
 
@@ -303,6 +325,8 @@ def view_data_frame(viewer, data_frame: PcdDataFrame):
 
 
 def view_result_pcd(viewer, data_frame: PcdDataFrame) -> None:
+    """ View the result pointcloud with human removed.
+    """
     # Add an coordinate system mesh at at the map origin
     viewer.add_geometry(o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5, origin=np.array([0., 0., 0.])))
 
@@ -325,9 +349,27 @@ def view_result_pcd(viewer, data_frame: PcdDataFrame) -> None:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Human removal for Kinect 3D pointcloud sequence.')
+
+    parser.add_argument('-b', '--batchmode',
+                        help='Batch processing mode (default debug-visualization mode).',
+                        action="store_true")
+    parser.add_argument('-s', '--start',
+                        help='Start data frame serial number in debug-visualization mode',
+                        type=int, default=0)
+    parser.add_argument('dataset', help='Path to dataset.')
+
+    args = parser.parse_args()
+
+    print(f"batchmode: {args.batchmode}\n"
+          f"start: {args.start}\n"
+          f"dataset: {args.dataset}"
+          )
+
+    DBG_VIS = not args.batchmode
+    
     cwd = os.getcwd()
-    print(cwd)
-    data_folder = os.path.join(os.getcwd(), "data/galleryP1")
+    data_folder = os.path.join(os.getcwd(), args.dataset)
     if not os.path.isdir(data_folder):
         raise Exception(f"subfolder {data_folder} doesn't exist")
     
@@ -343,15 +385,13 @@ if __name__ == "__main__":
         data_frame.from_PcdDataFiles(data_files_frame)
         data_frame_list.append(data_frame)
 
-    DBG_VIS = True
-
     if DBG_VIS: # Debug and visualization mode
         viewer = o3d.visualization.VisualizerWithKeyCallback()
         viewer.create_window()
         opt = viewer.get_render_option()
         opt.background_color = np.asarray([0.5, 0.5, 0.5])
     
-        ts_index = 57  # P1: 57, P2: 63, P3: 26
+        ts_index = args.start  # P1: 57, P2: 63, P3: 26
         def goto_next_frame(viewer):
             global ts_index
             if ts_index + 1 < len(data_frame_list):

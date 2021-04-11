@@ -133,7 +133,7 @@ class SkelTrack:
         self.last_propagated_ts: int = 0
         self.last_updated_ts: int = 0
         self.kf: KalmanConstVel = None
-        self.meas_bb_history: List[Tuple[int, o3d.geometry.AxisAlignedBoundingBox]] = []
+        self.meas_bb_history: List[Tuple[int, o3d_bb]] = []
     
     def __str__(self) -> str:
         return (
@@ -144,7 +144,7 @@ class SkelTrack:
             f"kf: {self.kf}\n"
         )
     
-    def initialize(self, track_id: int, ts: int, bb: o3d.geometry.AxisAlignedBoundingBox) -> None:
+    def initialize(self, track_id: int, ts: int, bb: o3d_bb) -> None:
         self.track_id = track_id
         self.kf = KalmanConstVel()
         self.kf.update(bb.get_center())
@@ -160,7 +160,7 @@ class SkelTrack:
             self.kf.propagate(dt)
             self.last_propagated_ts = ts
 
-    def update(self, ts: int, bb: o3d.geometry.AxisAlignedBoundingBox) -> None:
+    def update(self, ts: int, bb: o3d_bb) -> None:
         assert(self.is_initialized)
         if self.last_propagated_ts != ts:
             self.predict(ts)
@@ -217,7 +217,7 @@ class SkelTrack:
 
 class TrackManager:
     DATA_ASSO_GATE_DIST = 1.2  # in meters
-    TRACK_EXPIRE_GATE_TIME = 1  # in seconds
+    TRACK_EXPIRE_GATE_TIME = 3  # in seconds
 
     def __init__(self):
         # All tracks = cur_tracks + dormant_tracks
@@ -264,7 +264,7 @@ class TrackManager:
     def get_cur_tracks(self) -> List[SkelTrack]:
         return copy.deepcopy(self.cur_tracks)
     
-    def update_tracks(self, ts: int, meas_bb_list: List[o3d.geometry.AxisAlignedBoundingBox]) -> None:
+    def update_tracks(self, ts: int, meas_bb_list: List[o3d_bb]) -> None:
         self.last_ts = ts
         self.propagated_tracks.clear()
         self.updated_tracks.clear()

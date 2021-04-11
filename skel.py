@@ -13,7 +13,7 @@ class SkeletonPart:
         self.confidence_level = 0
         self.trans = Trans()
     
-    def __str__(self):
+    def __str__(self) -> str:
         return (
             f"confidence_level: {self.confidence_level}\n"
             f"trans: {self.trans}\n"
@@ -25,7 +25,7 @@ class Skeleton:
         self.index = 0
         self.skeleton_parts = []  # list of SkeletonPart
     
-    def __str__(self):
+    def __str__(self) -> str:
         expr = f"index: {self.index}\n"
         for s in self.skeleton_parts:
             expr = expr + f"{s}"
@@ -50,7 +50,7 @@ class SkeletonFrame:
         self.skeleton_list = []   # list of Skeleton
 
     
-    def __str__(self):
+    def __str__(self) -> str:
         expr = f"======== SkeletonFrame ========\n"
         for l in self.skeleton_list:
             expr = expr + f"{l}\n"
@@ -58,7 +58,7 @@ class SkeletonFrame:
         return expr
 
 
-    def from_yaml(self, skel_file: str, kinect_pose: Trans = None):
+    def from_yaml(self, skel_file: str, kinect_pose: Trans = None) -> None:
         self.num_skeletons = 0
         self.skeleton_list = []
 

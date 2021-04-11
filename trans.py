@@ -10,7 +10,7 @@ class Trans:
         self.rot_quat = [0., 0., 0., 0.]
         self.rpy = [0., 0., 0.]
     
-    def __str__(self):
+    def __str__(self) -> str:
         return (
             f"trans_vec: {self.trans_vec}, rot_quat: {self.rot_quat}, rpy: {self.rpy}"
         )

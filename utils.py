@@ -11,7 +11,7 @@ def get_text_pcd(text: str, pos: Tuple[int, int, int], direction: Tuple[int, int
                  degree: float = 0., density: int = 10,
                  font: str = '/usr/share/fonts/truetype/freefont/FreeMono.ttf',
                  font_size: int = 16):
-    """ Generate a 3D text point cloud used for visualization.
+    """ Generate a 3D text as a point cloud for visualization (o3d doesn't draw text).
     :param text: content of the text
     :param pos: 3D xyz position of the text upper left corner
     :param direction: 3D normalized direction of where the text faces

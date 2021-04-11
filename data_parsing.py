@@ -19,7 +19,7 @@ class PcdDataFiles:
         self.skel_file = ""
         self.res_file = ""
     
-    def __str__(self):
+    def __str__(self) -> str:
         return (
             f"======== PcdDataFiles frame ========\n"
             f"ts: {self.ts}\n"
@@ -41,7 +41,7 @@ class PcdDataFrame:
         self.skel_frame = SkeletonFrame()
         self.res_pcd = o3d.geometry.PointCloud()
     
-    def from_PcdDataFiles(self, pcd_data_files_frame: PcdDataFiles):
+    def from_PcdDataFiles(self, pcd_data_files_frame: PcdDataFiles) -> None:
         f_frame = pcd_data_files_frame
         self.ts = int(f_frame.ts)
         self.kinect_pose = f_frame.kinect_pose
