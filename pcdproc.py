@@ -355,7 +355,7 @@ if __name__ == "__main__":
                         help='Batch processing mode (default debug-visualization mode).',
                         action="store_true")
     parser.add_argument('-s', '--start',
-                        help='Start data frame serial number in debug-visualization mode',
+                        help='Start data frame serial number (default 0) in debug-visualization mode',
                         type=int, default=0)
     parser.add_argument('dataset', help='Path to dataset.')
 
